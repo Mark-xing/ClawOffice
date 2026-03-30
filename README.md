@@ -1,154 +1,187 @@
 <div align="center">
 
-# Open Office
+# 🦞 ClawOffice
 
-### A visible workspace for AI agents to collaborate as a single team.
+### A virtual office where AI agents collaborate as OpenClaws in shared rooms.
 
-[![npm version](https://img.shields.io/npm/v/open-office?color=cb3837&logo=npm)](https://www.npmjs.com/package/open-office)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/longyangxi/open-office/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Mark-xing/ClawOffice/pulls)
 
-**Supports Claude, Codex, Gemini, Copilot, Cursor, Aider, OpenCode, Pi & Sapling — one team 🚀**
+**OpenClaw agents + Room collaboration + OpenSpec workflow 🚀**
 
-
-[Quick Start](#quick-start) | [Features](#features) | [Architecture](#architecture) | [Contributing](#contributing)
+[Quick Start](#quick-start) | [Concepts](#core-concepts) | [Architecture](#architecture) | [OpenClaw CLI](#openclaw-cli) | [Contributing](#contributing)
 
 </div>
 
 ---
-![Image](https://github.com/user-attachments/assets/ecfcd88b-e72e-4b04-bdd7-87eea9f00b51)
 
+## What is ClawOffice?
 
-## Features
-- **8 AI backends, 23 roles** — Claude, Codex, Gemini, Copilot, and more in one pipeline  
-- **Team-based delivery** — Leader coordinates planning, coding, review, and release  
-- **Parallel collaboration** — Worktree isolation with auto commit, merge, and undo  
-- **Flexible code review** — Mix Claude Code, Codex, or any tool you prefer  
-- **Preview & feedback** — Live preview, rating, and continuous learning  
-- **Persistent memory** — 4-layer memory across sessions and agents  
-- **Telegram Control** — Manage your agent team remotely  
-- **Native desktop app** — Tauri-based app with system notifications  
-- **Token cost tracking** — Real-time usage per agent and team  
+ClawOffice is a platform where multiple AI coding agents (Claude, Codex, Gemini, Copilot, and more) work together as **OpenClaws** in shared **Rooms**, following the **OpenSpec** spec-driven development workflow.
+
+Think of it as a virtual office — you can see pixel characters sitting at desks, typing code, having conversations. But each character is a real AI agent, and they're actually building software together.
+
+### Key Difference from v1
+
+| | v1 (Open Office) | v2 (ClawOffice) |
+|---|---|---|
+| **Agent model** | Preset roles on one machine | Independent **OpenClaw** instances, local or remote |
+| **Collaboration** | Single gateway, local spawn | **Room**-based, anyone's OpenClaw can join via WebSocket |
+| **Workflow** | Custom Create→Design→Execute | **OpenSpec** standard: Propose→Plan→Apply→Archive |
+| **Connectivity** | LAN only | LAN discovery + remote WS + tunnel |
 
 ## Quick Start
 
 ```bash
-npx bit-office
-```
+# Start the Room Server + Web UI
+npx clawoffice
 
-## Learn More
-
-- **Team workflow** — how agents plan, execute, and deliver ([view](team-workflow.md))  
-- **Collaboration system** — multi-agent orchestration and worktree isolation ([view](packages/orchestrator/README.md))  
-- **Memory design** — four-layer persistent memory architecture ([view](packages/memory/README.md))  
-
-## Run from Source
-
-### Prerequisites
-
-- **Node.js** 18+
-- **pnpm**
-- At least one AI CLI installed (see [Supported Backends](#supported-backends))
-
-### Setup
-
-```bash
-git clone https://github.com/longyangxi/open-office.git
-cd open-office
+# Or from source
+git clone https://github.com/Mark-xing/ClawOffice.git
+cd ClawOffice
 pnpm install
 pnpm dev
 ```
 
-## Desktop App (Tauri)
-
-Open Office also ships as a native **macOS desktop app** powered by [Tauri](https://tauri.app). 
-
-### Prerequisites
-
-- **Node.js** 18+, **pnpm**
-- **Rust** toolchain — install via: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-
-### Dev Mode
+### Join from another machine
 
 ```bash
-pnpm dev:desktop
+# Discover Room Servers on your network
+openclaw discover
+
+# Join a room
+openclaw join ws://192.168.1.10:9876 --name "My Claude" --backend claude
 ```
 
+## Core Concepts
 
-### Build Release
+### 🦞 OpenClaw
 
-```bash
-pnpm build:desktop
+An **OpenClaw** is an independent AI agent instance. It wraps any AI CLI (Claude Code, Codex, Gemini...) and can:
+- Run locally (spawned by the Room Server)
+- Connect remotely via WebSocket
+- Execute tasks assigned by the Room
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   OpenClaw A     │     │   OpenClaw B     │     │   OpenClaw C     │
+│   (local Claude) │     │   (remote Codex) │     │   (remote Gemini)│
+│   Your machine   │     │   Teammate's PC  │     │   Cloud server   │
+└────────┬────────┘     └────────┬────────┘     └────────┬────────┘
+         │ spawn                 │ WebSocket              │ WebSocket
+         └──────────────────┬────┴──────────────────┬─────┘
+                            │                       │
+                     ┌──────┴───────────────────────┴──────┐
+                     │           Room Server                │
+                     │      (ClawOffice Gateway)            │
+                     └─────────────────────────────────────┘
 ```
 
-Produces `Open Office.app` and `.dmg` at:
+### 🏠 Room
+
+A **Room** is a shared collaboration space. Multiple OpenClaws join a room to work on a project together.
+
+- Each room has its own **OpenSpec** workflow state
+- Roles: `leader` (plans), `dev` (codes), `reviewer` (checks)
+- Tasks from `tasks.md` are automatically assigned to available Claws
+- LAN discovery: Room Servers broadcast their presence (UDP beacon)
+
+### 📋 OpenSpec Workflow
+
+ClawOffice uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for spec-driven development:
+
 ```
-apps/desktop/src-tauri/target/release/bundle/macos/Open Office.app
-apps/desktop/src-tauri/target/release/bundle/dmg/Open Office_0.1.0_aarch64.dmg
+  PROPOSE          PLAN           APPLY          ARCHIVE
+  ───────→       ───────→       ───────→       ───────→
+  💡 Idea    📋 specs/design    ⚡ Execute     📦 Done
+             /tasks            tasks
+  
+  User         Leader Claw      All Claws      System
+  describes    generates        implement      archives
+  what to      the plan         tasks in       to knowledge
+  build                         parallel       base
 ```
 
-## Supported Backends
-
-Open Office auto-detects installed AI CLIs at startup. Each backend has its own instruction file convention and capability set.
-
-| Backend | Command | Stability | Guard | Instruction File | Resume | Structured Output | Tested |
-|---|---|---|---|---|---|---|---|
-| **Claude Code** | `claude` | Stable | Hooks | `.claude/CLAUDE.md` | Yes | Yes (stream-json) | ✅ |
-| **Codex CLI** | `codex` | Stable | Sandbox (Seatbelt/Landlock) | `AGENTS.md` | — | — | ✅ |
-| **Gemini CLI** | `gemini` | Beta | `--sandbox` flag | `GEMINI.md` | — | — | — |
-| **GitHub Copilot** | `copilot` | Experimental | — | `.github/copilot-instructions.md` | — | — | — |
-| **Cursor CLI** | `agent` | Experimental | — | `.cursor/rules/instructions.md` | — | — | — |
-| **Aider** | `aider` | Experimental | — | `.aider.conf.yml` | — | — | — |
-| **OpenCode** | `opencode` | Experimental | — | `AGENTS.md` | — | Yes (json) | — |
-| **Pi** | `pi` | Experimental | — | `.claude/CLAUDE.md` | — | — | — |
-| **Sapling** | `sp` | Experimental | — | `SAPLING.md` | — | Yes (json) | — |
-
-> ✅ = actively tested in production workflows. Other backends have not yet verified end-to-end.
->
-> Backends with ambiguous binary names (`agent`, `pi`, `sp`) use version-probe detection to avoid false positives.
+**Directory structure** (per project):
+```
+openspec/changes/<project-name>/
+├── proposal.md    # What and why
+├── specs/         # Detailed requirements
+├── design.md      # Technical approach
+└── tasks.md       # Executable task list → auto-assigned to Claws
+```
 
 ## Architecture
 
 ```
-open-office/
+clawoffice/
 ├── apps/
-│   ├── web/            # Next.js PWA + PixiJS pixel office + control UI
-│   ├── gateway/        # Runtime daemon: events, channels, policy, orchestration
-│   └── desktop/        # Tauri v2 native shell (macOS .app/.dmg)
+│   ├── web/              # Next.js PWA + PixiJS pixel office + control UI
+│   ├── gateway/          # Room Server: rooms, claws, specs, transport
+│   ├── claw/             # OpenClaw CLI: join rooms, execute tasks
+│   └── desktop/          # Tauri v2 native shell (macOS)
 └── packages/
-    ├── memory/         # Four-layer persistent memory (L0–L3)
-    ├── orchestrator/   # Multi-agent execution engine
-    └── shared/         # Typed command/event contracts (Zod schemas)
+    ├── orchestrator/     # Task engine: SpecEngine, TaskRouter, worktree
+    └── shared/           # Protocol: commands, events, types (Zod schemas)
 ```
 
-**Channels**: WebSocket (always on), Ably (optional), Telegram (optional)
+**Transport**: WebSocket (always on) + Ably (optional) + Telegram (optional) + UDP discovery
+
+## OpenClaw CLI
+
+```bash
+# Join a room
+openclaw join ws://localhost:9876 --name "Rex" --backend claude
+
+# With capabilities
+openclaw join ws://host:port --capabilities code,review --model opus
+
+# Discover servers
+openclaw discover --timeout 10
+
+# Options
+  --name NAME          Display name
+  --backend BACKEND    AI CLI (claude/codex/gemini/copilot)
+  --room ROOM_ID       Target room (default: "default")
+  --cwd DIR            Working directory
+  --capabilities CAP   Comma-separated (code,review,design,plan,test)
+  --model MODEL        AI model (opus/sonnet)
+```
+
+## Supported Backends
+
+| Backend | Command | Stability |
+|---|---|---|
+| **Claude Code** | `claude` | Stable ✅ |
+| **CodeBuddy** | `codebuddy` | Stable ✅ |
+| **Codex CLI** | `codex` | Stable ✅ |
+| **Gemini CLI** | `gemini` | Beta |
+| **GitHub Copilot** | `copilot` | Experimental |
+| **Cursor CLI** | `agent` | Experimental |
+| **Aider** | `aider` | Experimental |
+| **OpenCode** | `opencode` | Experimental |
 
 ## Tech Stack
 
 - **Frontend**: Next.js 15, React, PixiJS v8, Zustand
 - **Desktop**: Tauri v2 (Rust + system WebView)
-- **Backend**: Node.js daemon, WebSocket
-- **Memory**: Four-layer JSON store (session → agent → shared), Jaccard dedup
-- **Protocol**: Zod-validated event schemas
-- **Integrations**: Ably, Telegram, external process detection
+- **Backend**: Node.js, WebSocket, UDP discovery
+- **Protocol**: Zod-validated schemas, OpenSpec SDD
+- **Integrations**: Ably, Telegram, Tailscale
 
 ## Contributing
 
-Issues and PRs are welcome. If you're exploring AI-native dev tooling, workflows, or interfaces, Open Office is a great playground for experiments.
-
-## Acknowledgments
-
-Pixel office art inspired by [pixel-agents](https://github.com/pablodelucca/pixel-agents) by [@pablodelucca](https://github.com/pablodelucca).
+Issues and PRs are welcome. Whether you're building AI-native dev tools, experimenting with multi-agent workflows, or just want to watch pixel lobsters code — jump in.
 
 ## License
 
-[MIT](LICENSE) - feel free to use, modify, and distribute.
+[MIT](LICENSE) — use it, fork it, claw it. 🦞
 
 ---
 
 <div align="center">
 
-**If Open Office helps your workflow, consider giving it a star!**
+**If ClawOffice helps your workflow, consider giving it a star! ⭐**
 
 </div>

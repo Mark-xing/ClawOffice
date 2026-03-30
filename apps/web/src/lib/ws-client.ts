@@ -1,5 +1,6 @@
 import { GatewayEventSchema } from "@office/shared";
 import { useOfficeStore } from "@/store/office-store";
+import { bridgeClawEvent } from "./claw-event-bridge";
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -86,6 +87,8 @@ function doConnect() {
         }
       }
       useOfficeStore.getState().handleEvent(event);
+      // ── OpenClaw v2: forward Claw/Room/Spec events to room-store ──
+      bridgeClawEvent(event);
     } catch (err) {
       console.error("[WS] Invalid event:", err);
     }

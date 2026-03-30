@@ -1,11 +1,13 @@
 {
-  "name": "bit-office-root",
+  "name": "clawoffice",
   "private": true,
-  "version": "0.1.101",
+  "version": "2.0.0",
+  "description": "A virtual office where AI agents collaborate as OpenClaws in shared rooms",
   "scripts": {
     "dev": "pnpm --filter bit-office dev & pnpm --filter web dev",
     "dev:web": "pnpm --filter web dev",
     "dev:gateway": "pnpm --filter bit-office dev",
+    "dev:claw": "pnpm --filter @clawoffice/claw dev",
     "start": "pnpm --filter web build && pnpm --filter bit-office start",
     "build": "pnpm -r build",
     "build:release": "pnpm --filter web build && pnpm --filter bit-office build",

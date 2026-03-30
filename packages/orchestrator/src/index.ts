@@ -20,6 +20,10 @@ export { createWorktree, getManagedWorktreeBranch, getMergeHistory, mergeWorktre
 export type { CleanupWorktreeOptions, MergeResult, RuntimeOwnerInfo, WorktreeOwnerInfo } from "./worktree.js";
 export type { AIBackend, BuildArgsOpts, BackendStability, GuardType } from "./ai-backend.js";
 export { syncAgentDefs } from "./agent-defs.js";
+export { SpecEngine, parseTasksMd, serializeTasksMd } from "./spec-engine.js";
+export type { SpecTask, SpecEngineOptions, SpecEngineEvents } from "./spec-engine.js";
+export { TaskRouter } from "./task-router.js";
+export type { RoutableClaw, TaskAssignment } from "./task-router.js";
 export type { TeamPhaseInfo } from "./phase-machine.js";
 export type {
   AgentStatus,

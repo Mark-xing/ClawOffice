@@ -1,5 +1,5 @@
 import { registerChannel, initTransports, publishEvent, destroyTransports, reinitChannel, isChannelActive } from "./transport.js";
-import { wsChannel, setPairCode, sendToClient } from "./ws-server.js";
+import { wsChannel, setPairCode, sendToClient, getHttpServer } from "./ws-server.js";
 import { ablyChannel } from "./ably-client.js";
 import { telegramChannel, setTelegramAgentDefs, syncTelegramHiredAgents } from "./telegram-channel.js";
 import { config, CONFIG_DIR, hasSetupRun, reloadConfig, saveConfig } from "./config.js";
@@ -21,6 +21,14 @@ import { startTunnel, stopTunnel, isTunnelRunning } from "./tunnel.js";
 import { loadTeamState, saveTeamState, clearTeamState, type TeamState, type PersistedAgent, bufferEvent, archiveProject, resetProjectBuffer, setProjectName, listProjects, loadProject, loadProjectBuffer, rateProject } from "./team-state.js";
 import { clearRuntimeState, killPreviousInstances, registerRuntimeState } from "./runtime-state.js";
 
+// ── OpenClaw v2 modules ──
+import { ClawRegistry } from "./claw-registry.js";
+import { RoomManager } from "./room-manager.js";
+import { mountClawWs } from "./claw-ws.js";
+import { bridgeAgentCreated, bridgeAgentFired, bridgeAgentStatus } from "./claw-bridge.js";
+import { handleSpecPropose, handleSpecPlan, handleSpecApprove, handleSpecApply, handleSpecArchive, handleSpecUpdateFile, handleSpecFeedback, handleTaskUpdate, type SpecHandlerContext } from "./spec-handler.js";
+import { DiscoveryBroadcaster } from "./claw-discovery.js";
+
 // Register all channels — each one self-activates if configured
 registerChannel(wsChannel);
 registerChannel(ablyChannel);
@@ -30,6 +38,10 @@ let orc: Orchestrator;
 let scanner: ProcessScanner | null = null;
 let outputReader: ExternalOutputReader | null = null;
 let runtimeState: RuntimeOwnerInfo | null = null;
+
+// ── OpenClaw v2 ──
+const clawRegistry = new ClawRegistry();
+let roomManager: RoomManager;
 
 /** Track external agents so PING can broadcast them */
 const externalAgents = new Map<string, { agentId: string; name: string; backendId: string; pid: number; cwd: string | null; startedAt: number; status: "working" | "idle" }>();
@@ -394,6 +406,58 @@ const suggestions: { text: string; author: string; ts: number }[] = [];
 // Rate limit tracking: clientId → last suggest timestamp
 const suggestRateLimit = new Map<string, number>();
 const SUGGEST_COOLDOWN_MS = 3000;
+
+// ---------------------------------------------------------------------------
+// OpenSpec context builder — connects SpecHandler to existing systems
+// ---------------------------------------------------------------------------
+
+function buildSpecContext(): SpecHandlerContext {
+  return {
+    roomManager,
+    clawRegistry,
+    runLeaderTask: (roomId, prompt) => {
+      // 找到房间中的 Leader agent，触发 Orchestrator 任务
+      const claws = clawRegistry.getByRoom(roomId);
+      const leader = claws.find(c => c.role === "leader");
+      if (!leader) {
+        console.warn(`[SpecHandler] No leader in room ${roomId}`);
+        return;
+      }
+      // 如果是本地 claw，通过 orchestrator 跑任务
+      if (leader.isLocal) {
+        const localClaw = leader as import("./claw-registry.js").LocalClaw;
+        const taskId = `spec-${Date.now()}`;
+        orc.runTask(localClaw.agentId, taskId, prompt);
+      } else {
+        // 远程 claw，发送任务命令
+        leader.send({
+          type: "SPEC_TASK_ASSIGNED",
+          roomId,
+          taskId: `spec-${Date.now()}`,
+          clawId: leader.clawId,
+          description: prompt,
+        });
+      }
+    },
+    runWorkerTask: (clawId, taskId, prompt) => {
+      const claw = clawRegistry.get(clawId);
+      if (!claw) return;
+
+      if (claw.isLocal) {
+        const localClaw = claw as import("./claw-registry.js").LocalClaw;
+        orc.runTask(localClaw.agentId, taskId, prompt);
+      } else {
+        claw.send({
+          type: "SPEC_TASK_ASSIGNED",
+          roomId: claw.roomId,
+          taskId,
+          clawId,
+          description: prompt,
+        });
+      }
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Command handler — maps incoming commands → orchestrator method calls
@@ -1359,6 +1423,50 @@ function handleCommand(parsed: Command | { type: string; [key: string]: any }, m
       orc.setAgentAutoMerge(parsed.agentId, parsed.autoMerge);
       break;
     }
+
+    // ── OpenSpec workflow commands (v2) ──
+    case "SPEC_PROPOSE": {
+      const specCtx = buildSpecContext();
+      handleSpecPropose(specCtx, parsed.roomId, parsed.idea);
+      break;
+    }
+    case "SPEC_PLAN": {
+      const specCtx = buildSpecContext();
+      handleSpecPlan(specCtx, parsed.roomId, parsed.feedback);
+      break;
+    }
+    case "SPEC_APPROVE": {
+      const specCtx = buildSpecContext();
+      handleSpecApprove(specCtx, parsed.roomId);
+      break;
+    }
+    case "SPEC_APPLY": {
+      const specCtx = buildSpecContext();
+      handleSpecApply(specCtx, parsed.roomId);
+      break;
+    }
+    case "SPEC_ARCHIVE": {
+      const specCtx = buildSpecContext();
+      handleSpecArchive(specCtx, parsed.roomId);
+      break;
+    }
+    case "SPEC_UPDATE_FILE": {
+      const specCtx = buildSpecContext();
+      handleSpecUpdateFile(specCtx, parsed.roomId, parsed.file, parsed.content);
+      break;
+    }
+    case "SPEC_FEEDBACK": {
+      const specCtx = buildSpecContext();
+      handleSpecFeedback(specCtx, parsed.roomId, parsed.feedback);
+      break;
+    }
+    case "TASK_UPDATE": {
+      if (parsed.roomId) {
+        const specCtx = buildSpecContext();
+        handleTaskUpdate(specCtx, parsed.roomId, parsed.taskId, parsed.status, parsed.output);
+      }
+      break;
+    }
   }
 }
 
@@ -1416,6 +1524,10 @@ async function main() {
   agentDefs = loadAgentDefs();
   setTelegramAgentDefs(agentDefs);
   console.log(`[Gateway] Loaded ${agentDefs.length} agent definitions (${agentDefs.filter(a => !a.isBuiltin).length} custom)`);
+
+  // ── OpenClaw v2: Initialize Room system ──
+  roomManager = new RoomManager(clawRegistry);
+  console.log(`[Gateway] Room system initialized (default room: ${roomManager.defaultRoomId})`);
 
   // Restore project event buffer from disk (survives gateway restarts)
   loadProjectBuffer();
@@ -1538,7 +1650,25 @@ async function main() {
   ]);
 
   // Forward orchestrator events to transport channels
+  const clawBridgeOpts = { clawRegistry, roomManager };
   const forwardEvent = (event: OrchestratorEvent) => {
+    // ── OpenClaw v2 bridge: sync agent events to Claw/Room system ──
+    if (event.type === "agent:created") {
+      bridgeAgentCreated(clawBridgeOpts, {
+        agentId: event.agentId,
+        name: event.name,
+        backend: event.backend ?? config.defaultBackend,
+        role: event.role,
+        palette: event.palette,
+        isTeamLead: event.isTeamLead,
+        teamId: event.teamId,
+      });
+    } else if (event.type === "agent:fired") {
+      bridgeAgentFired(clawBridgeOpts, event.agentId);
+    } else if (event.type === "agent:status") {
+      bridgeAgentStatus(clawBridgeOpts, event.agentId, event.status);
+    }
+
     const mapped = mapOrchestratorEvent(event);
     if (mapped) {
       if (ARCHIVE_EVENT_TYPES.has(mapped.type)) bufferEvent(mapped);
@@ -1680,8 +1810,69 @@ async function main() {
   // Start transports (WS + optional Ably)
   await initTransports(handleCommand);
 
+  // ── OpenClaw v2: Mount /claw WebSocket endpoint for remote OpenClaw connections ──
+  const httpServer = getHttpServer();
+  if (httpServer) {
+    mountClawWs(httpServer, {
+      clawRegistry,
+      roomManager,
+      validateToken: (_token) => true, // TODO: real token validation
+      onClawCommand: (clawId, msg) => {
+        console.log(`[ClawWS] Command from ${clawId}:`, msg.type);
+        const claw = clawRegistry.get(clawId);
+        const roomId = claw?.roomId ?? roomManager.defaultRoomId;
+        const specCtx = buildSpecContext();
+
+        // Route claw commands to appropriate handlers
+        switch (msg.type) {
+          case "SPEC_PROPOSE":
+            handleSpecPropose(specCtx, roomId, msg.idea as string);
+            break;
+          case "SPEC_PLAN":
+            handleSpecPlan(specCtx, roomId, msg.feedback as string | undefined);
+            break;
+          case "SPEC_APPROVE":
+            handleSpecApprove(specCtx, roomId);
+            break;
+          case "SPEC_APPLY":
+            handleSpecApply(specCtx, roomId);
+            break;
+          case "SPEC_ARCHIVE":
+            handleSpecArchive(specCtx, roomId);
+            break;
+          case "SPEC_UPDATE_FILE":
+            handleSpecUpdateFile(specCtx, roomId, msg.file as string, msg.content as string, clawId);
+            break;
+          case "SPEC_FEEDBACK":
+            handleSpecFeedback(specCtx, roomId, msg.feedback as string);
+            break;
+          case "TASK_UPDATE":
+            handleTaskUpdate(specCtx, roomId, msg.taskId as string, msg.status as string, msg.output as string | undefined);
+            break;
+          default:
+            console.log(`[ClawWS] Unhandled command type: ${msg.type}`);
+        }
+      },
+    });
+    console.log(`[Gateway] OpenClaw /claw endpoint ready (remote claws can join)`);
+  }
+
   // Start Cloudflare Tunnel if configured
   startTunnel();
+
+  // ── OpenClaw v2: Start LAN discovery broadcaster ──
+  const discoveryBroadcaster = new DiscoveryBroadcaster(() => ({
+    magic: "CLAWOFFICE_BEACON_V1" as const,
+    roomServerUrl: `ws://localhost:${config.wsPort}`,
+    roomName: roomManager.getRoom(roomManager.defaultRoomId)?.name ?? "ClawOffice",
+    owner: config.machineId,
+    clawCount: clawRegistry.size,
+    specPhase: roomManager.getRoom(roomManager.defaultRoomId)?.specPhase ?? null,
+    gatewayId: config.gatewayId,
+    version: "2.0.0",
+    timestamp: Date.now(),
+  }));
+  discoveryBroadcaster.start();
 
   console.log("[Gateway] Listening for commands...");
   console.log("[Gateway] Press 'p' + Enter to generate a new pair code");

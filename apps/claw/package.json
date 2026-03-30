@@ -1,0 +1,36 @@
+{
+  "name": "clawoffice",
+  "version": "0.1.0",
+  "description": "ClawOffice CLI — Join rooms as an independent AI agent, powered by OpenClaw",
+  "type": "module",
+  "bin": {
+    "clawoffice": "./dist/index.js",
+    "openclaw": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["ai", "agent", "cli", "openclaw", "clawoffice", "collaboration"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mark-xing/ClawOffice.git",
+    "directory": "apps/claw"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "nanoid": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

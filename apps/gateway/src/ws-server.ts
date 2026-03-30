@@ -22,6 +22,7 @@ function isTunnelRequest(req: IncomingMessage): boolean {
 }
 
 let wss: WebSocketServer | null = null;
+let _httpServer: ReturnType<typeof createServer> | null = null;
 const clients = new Map<WebSocket, { role: UserRole; clientId: string }>();
 let pairCode: string | null = null;
 let onCommand: ((cmd: Command | { type: string; [key: string]: any }, meta: CommandMeta) => void) | null = null;
@@ -408,6 +409,7 @@ export const wsChannel: Channel = {
 
       const tryListen = () => {
         const httpServer = createServer(requestHandler);
+        _httpServer = httpServer;
         httpServer.listen(port, () => {
           // When port=0, OS assigns a random port — read the actual value
           const actualPort = (httpServer.address() as any)?.port ?? port;
@@ -415,7 +417,20 @@ export const wsChannel: Channel = {
           config.wsPort = actualPort;
 
           // Attach WebSocket server only after successful listen
-          wss = new WebSocketServer({ server: httpServer });
+          // Use noServer mode so /claw upgrades can be routed to claw-ws.ts separately
+          wss = new WebSocketServer({ noServer: true });
+
+          // Handle upgrade: only take non-/claw paths (default WS for Web UI)
+          httpServer.on("upgrade", (req, socket, head) => {
+            const url = req.url ?? "/";
+            // /claw paths are handled by claw-ws.ts's mountClawWs()
+            if (url.startsWith("/claw")) return;
+            // All other upgrade requests go to the existing WS server (Web UI)
+            wss!.handleUpgrade(req, socket, head, (ws) => {
+              wss!.emit("connection", ws, req);
+            });
+          });
+
           wss.on("connection", (ws) => {
             pendingAuth.add(ws);
             console.log(`[WS] Client connected, awaiting AUTH...`);
@@ -603,4 +618,9 @@ function printLanAddresses() {
       }
     }
   }
+}
+
+/** Get the underlying HTTP server (for mounting additional WS endpoints like /claw) */
+export function getHttpServer(): ReturnType<typeof createServer> | null {
+  return _httpServer;
 }
